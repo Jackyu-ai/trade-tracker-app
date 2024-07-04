@@ -11,7 +11,15 @@ export interface Transaction {
 
 export interface User {
   user_id: string;
+  username: string;
   display_name: string;
+  avatar: string;
+  metadata: {
+    team_name?: string;
+    [key: string]: any;
+  };
+  is_owner: boolean;
+  is_bot: boolean;
 }
 
 export interface Player {
