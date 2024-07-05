@@ -212,10 +212,24 @@ const ConsolidatedLeagueTracker: React.FC<{ initialLeagueId: string }> = ({ init
     fetchAllData();
   }, [initialLeagueId]);
 
-  const filteredTrades = trades.filter(trade =>
-    (selectedManager === 'All' || trade.team1.rosterId === selectedManager || trade.team2.rosterId === selectedManager) &&
-    (selectedSeason === 'All' || trade.season === selectedSeason)
-  );
+  const filteredTrades = trades
+      .filter(trade =>
+        (selectedManager === 'All' || trade.team1.rosterId === selectedManager || trade.team2.rosterId === selectedManager) &&
+        (selectedSeason === 'All' || trade.season === selectedSeason)
+      )
+      .map(trade => {
+        if (selectedManager !== 'All' && trade.team2.rosterId === selectedManager) {
+          // Swap team1 and team2 if the selected manager is team2
+          return {
+            ...trade,
+            team1: trade.team2,
+            team2: trade.team1,
+            team1Receives: trade.team2Receives,
+            team2Receives: trade.team1Receives
+          };
+        }
+        return trade;
+      });
 
   if (loading) return <div>Loading league data...</div>;
   if (error) return <div>Error: {error}</div>;
