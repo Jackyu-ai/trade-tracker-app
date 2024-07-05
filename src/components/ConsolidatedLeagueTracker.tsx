@@ -226,16 +226,17 @@ const ConsolidatedLeagueTracker: React.FC<{ initialLeagueId: string }> = ({ init
       <div className="mb-4 flex space-x-4">
         <div>
           <label htmlFor="managerFilter" className="mr-2">Filter by Manager:</label>
-          <select
-            id="managerFilter"
-            value={selectedManager}
-            onChange={(e) => setSelectedManager(e.target.value === 'All' ? 'All' : Number(e.target.value))}
-            className="border rounded p-2"
-          >
-            {managers.map(manager => (
-              <option key={manager.rosterId} value={manager.rosterId}>{manager.name}</option>
-            ))}
-          </select>
+            <select
+              id="managerFilter"
+              value={selectedManager}
+              onChange={(e) => setSelectedManager(e.target.value === 'All' ? 'All' : Number(e.target.value))}
+              className="border rounded p-2"
+            >
+              <option value="All">All Managers</option>
+              {managers.filter(manager => manager.rosterId !== -1).map(manager => (
+                <option key={manager.rosterId} value={manager.rosterId}>{manager.name}</option>
+              ))}
+            </select>
         </div>
         <div>
           <label htmlFor="seasonFilter" className="mr-2">Filter by Season:</label>
