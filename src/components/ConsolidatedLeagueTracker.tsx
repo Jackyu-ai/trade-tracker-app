@@ -115,45 +115,56 @@ const ConsolidatedLeagueTracker: React.FC = () => {
           });
 
           const mapDraftPick = (pick: {
-            season: string;
-            round: number;
-            roster_id: number;
-            owner_id: number;
-            previous_owner_id: number;
-          }) => {
-            const totalTeams = rosters.length;
-            const currentSeason = league.season;
+              season: string;
+              round: number;
+              roster_id: number;
+              owner_id: number;
+              previous_owner_id: number;
+            }) => {
+              const totalTeams = rosters.length;
+              const currentSeason = league.season;
 
-            if (pick.season > currentSeason) {
-              return `${pick.season} Round ${pick.round}`;
-            }
-
-            if (currentSeason === ROOKIE_SEASON) {
-              const slotToRosterId = draft.slot_to_roster_id || {};
-              const draftSlot = Object.keys(slotToRosterId).find(slot => slotToRosterId[slot] === pick.roster_id);
-
-              if (draftSlot) {
-                const pickNumber = (pick.round - 1) * totalTeams + parseInt(draftSlot);
-                const playerName = pickToPlayerMap.get(pickNumber) || "Undrafted";
-                return `${pick.round}.${draftSlot} (Overall ${pickNumber} - ${playerName})`;
-              } else {
+              if (pick.season > currentSeason) {
                 return `${pick.season} Round ${pick.round}`;
               }
-            }
 
-            if (currentSeason === STARTUP_SEASON) {
-              let pickInRound = pick.roster_id;
-              if (pick.round % 2 === 0) {
-                pickInRound = totalTeams - pick.roster_id + 1;
+              if (currentSeason === STARTUP_SEASON) {
+                const draftOrder = draft.draft_order || {};
+                const slotToRosterId = draft.slot_to_roster_id || {};
+                const draftSlot = Object.keys(slotToRosterId).find(slot => slotToRosterId[slot] === pick.roster_id);
+
+                if (draftSlot) {
+                  let pickInRound = parseInt(draftSlot);
+                  if (pick.round % 2 === 0) {
+                    pickInRound = totalTeams - pickInRound + 1;
+                  }
+                  const pickNumber = (pick.round - 1) * totalTeams + pickInRound;
+                  const playerName = pickToPlayerMap.get(pickNumber) || "Undrafted";
+                  return `${pick.round}.${pickInRound} (Overall ${pickNumber} - ${playerName})`;
+                } else {
+                  return `${pick.season} Round ${pick.round}`;
+                }
               }
-              const pickNumber = (pick.round - 1) * totalTeams + pickInRound;
-              const playerName = pickToPlayerMap.get(pickNumber) || "Undrafted";
-              return `${pick.round}.${pickInRound} (Overall ${pickNumber} - ${playerName})`;
-            }
 
-            return `${pick.season} Round ${pick.round}`;
-          };
+              if (currentSeason === ROOKIE_SEASON) {
+                const slotToRosterId = draft.slot_to_roster_id || {};
+                const draftSlot = Object.keys(slotToRosterId).find(slot => slotToRosterId[slot] === pick.roster_id);
 
+                if (draftSlot) {
+                  const pickNumber = (pick.round - 1) * totalTeams + parseInt(draftSlot);
+                  const playerName = pickToPlayerMap.get(pickNumber) || "Undrafted";
+                  return `${pick.round}.${draftSlot} (Overall ${pickNumber} - ${playerName})`;
+                } else {
+                  return `${pick.season} Round ${pick.round}`;
+                }
+              }
+
+              return `${pick.season} Round ${pick.round}`;
+            };
+
+            // Make sure to fetch and log the draft order when fetching draft data
+            console.log('Draft order:', draft.draft_order);
+            console.log('Slot to roster ID mapping:', draft.slot_to_roster_id);
           const processTradeData = (trade: Transaction): SimplifiedTrade => {
             const tradeDate = new Date(trade.created);
             const [team1Id, team2Id] = trade.roster_ids;
