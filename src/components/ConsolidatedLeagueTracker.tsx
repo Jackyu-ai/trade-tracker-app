@@ -132,12 +132,23 @@ const ConsolidatedLeagueTracker: React.FC = () => {
               const currentSeason = league.season;
 
               if (pick.season > currentSeason) {
-                // Future picks
                 return `${pick.season} Round ${pick.round}`;
               }
 
+              if (currentSeason === ROOKIE_SEASON) {
+                const slotToRosterId = draft.slot_to_roster_id || {};
+                const draftSlot = Object.keys(slotToRosterId).find(slot => slotToRosterId[slot] === pick.roster_id);
+
+                if (draftSlot) {
+                  const pickNumber = (pick.round - 1) * totalTeams + parseInt(draftSlot);
+                  return `${pick.round}.${draftSlot} (Overall ${pickNumber})`;
+                } else {
+                  return `${pick.season} Round ${pick.round}`;
+                }
+              }
+
+              // Keep existing logic for STARTUP_SEASON
               if (currentSeason === STARTUP_SEASON) {
-                // Startup draft: 27 rounds snake
                 let pickInRound = pick.roster_id;
                 if (pick.round % 2 === 0) {
                   pickInRound = totalTeams - pick.roster_id + 1;
@@ -146,21 +157,6 @@ const ConsolidatedLeagueTracker: React.FC = () => {
                 return `${pick.round}.${pickInRound} (Overall ${pickNumber})`;
               }
 
-              if (currentSeason === ROOKIE_SEASON) {
-                // Rookie draft: 4 rounds linear, use actual pick data
-                const rosterPicks = rosterPickMap[pick.roster_id] || [];
-                const actualPick = rosterPicks.find(p => p.round === pick.round);
-
-                if (actualPick) {
-                  return `${pick.round}.${actualPick.pick} (Overall ${(pick.round - 1) * totalTeams + actualPick.pick})`;
-                } else {
-                  // If actual pick data is not available, use roster_id as an approximation
-                  const approximatePick = (pick.round - 1) * totalTeams + pick.roster_id;
-                  return `${pick.round}.${pick.roster_id}`;
-                }
-              }
-
-              // This case should not occur, but added for completeness
               return `${pick.season} Round ${pick.round}`;
             };
 
