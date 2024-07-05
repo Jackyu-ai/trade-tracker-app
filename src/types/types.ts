@@ -43,8 +43,18 @@ export interface DraftPick {
 
 export interface League {
   league_id: string;
-  season: string;
   name: string;
+  season: string;
+  previous_league_id: string | null;
+  status: string;
+  sport: string;
+  settings: {
+    [key: string]: any;
+  };
+  scoring_settings: {
+    [key: string]: any;
+  };
+  roster_positions: string[];
   draft_id: string;
 }
 

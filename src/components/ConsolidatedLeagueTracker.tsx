@@ -9,14 +9,15 @@ interface User {
     team_name?: string;
   };
   avatar?: string;
+  username: string;
 }
 
 interface SimplifiedTrade {
   transactionId: string;
   date: Date;
   season: string;
-  team1: string;
-  team2: string;
+  team1: { name: string; rosterId: number };
+  team2: { name: string; rosterId: number };
   team1Receives: string[];
   team2Receives: string[];
   isDraftTrade: boolean;
@@ -46,13 +47,22 @@ interface DraftPick {
   draft_id: string;
 }
 
+interface ManagerOption {
+  name: string;
+  rosterId: number;
+}
+
 const STARTUP_SEASON = '2023';
 const ROOKIE_SEASON = '2024';
 
-const ConsolidatedLeagueTracker: React.FC = () => {
+const ConsolidatedLeagueTracker: React.FC<{ initialLeagueId: string }> = ({ initialLeagueId }) => {
   const [trades, setTrades] = useState<SimplifiedTrade[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [managers, setManagers] = useState<ManagerOption[]>([]);
+  const [selectedManager, setSelectedManager] = useState<number | 'All'>('All');
+  const [seasons, setSeasons] = useState<string[]>([]);
+  const [selectedSeason, setSelectedSeason] = useState<string>('All');
 
   const fetchDraftPicks = async (draftId: string): Promise<DraftPick[]> => {
     const response = await fetch(`https://api.sleeper.app/v1/draft/${draftId}/picks`);
@@ -62,12 +72,36 @@ const ConsolidatedLeagueTracker: React.FC = () => {
     return await response.json();
   };
 
-  useEffect(() => {
-    const leagueIds = [
-      '1064776225371099136', // 2024 League ID
-      '993596401017802752',  // 2023 League ID
-    ];
+  const mapDraftPick = (pick: {
+    season: string;
+    round: number;
+    roster_id: number;
+    owner_id: number;
+    previous_owner_id: number;
+  }, currentSeason: string, draft: any, rosters: Roster[], pickToPlayerMap: Map<number, string>): string => {
+    const totalTeams = rosters.length;
 
+    if (pick.season > currentSeason) {
+      return `${pick.season} Round ${pick.round}`;
+    }
+
+    const slotToRosterId = draft.slot_to_roster_id || {};
+    const draftSlot = Object.keys(slotToRosterId).find(slot => slotToRosterId[slot] === pick.roster_id);
+
+    if (draftSlot) {
+      let pickInRound = parseInt(draftSlot);
+      if (currentSeason === STARTUP_SEASON && pick.round % 2 === 0) {
+        pickInRound = totalTeams - pickInRound + 1;
+      }
+      const pickNumber = (pick.round - 1) * totalTeams + pickInRound;
+      const playerName = pickToPlayerMap.get(pickNumber) || "Undrafted";
+      return `${pick.round}.${pickInRound} (Overall ${pickNumber} - ${playerName})`;
+    } else {
+      return `${pick.season} Round ${pick.round}`;
+    }
+  };
+
+  useEffect(() => {
     const fetchAllData = async () => {
       try {
         setLoading(true);
@@ -77,94 +111,54 @@ const ConsolidatedLeagueTracker: React.FC = () => {
         console.log(`Fetched ${Object.keys(players).length} players`);
 
         let allTrades: SimplifiedTrade[] = [];
+        let allManagers = new Map<number, string>();
+        let allSeasons = new Set<string>();
+
+        const fetchLeagueHistory = async (leagueId: string): Promise<string[]> => {
+          const leagueIds = [leagueId];
+          let currentLeagueId = leagueId;
+
+          while (true) {
+            const currentLeague: League = await fetchLeague(currentLeagueId);
+            if (currentLeague.previous_league_id) {
+              leagueIds.unshift(currentLeague.previous_league_id);
+              currentLeagueId = currentLeague.previous_league_id;
+            } else {
+              break;
+            }
+          }
+
+          return leagueIds;
+        };
+
+        const leagueIds = await fetchLeagueHistory(initialLeagueId);
+        console.log('League history:', leagueIds);
 
         for (const leagueId of leagueIds) {
-          console.log(`Fetching data for league ${leagueId}`);
-
           const league: League = await fetchLeague(leagueId);
           console.log('League data:', league);
 
+          allSeasons.add(league.season);
+
           const users: Record<string, User> = await fetchUsers(leagueId);
-          console.log(`Fetched ${Object.keys(users).length} users`);
-
           const rosters: Roster[] = await fetchRosters(leagueId);
-          console.log(`Fetched ${rosters.length} rosters`);
-
           const transactions: Transaction[] = await fetchAllTransactions(leagueId);
-          console.log(`Fetched ${transactions.length} transactions`);
-
           const draft: any = await fetchDraft(league.draft_id);
-          console.log('Draft data:', draft);
-
           const draftPicks: DraftPick[] = await fetchDraftPicks(draft.draft_id);
-          console.log(`Fetched ${draftPicks.length} draft picks`);
 
           const pickToPlayerMap = new Map(draftPicks.map(pick => [
             pick.pick_no,
             `${pick.metadata.first_name} ${pick.metadata.last_name}`
           ]));
 
-          const userMap: Record<string, string> = {};
-          Object.values(users).forEach(user => {
-            userMap[user.user_id] = user.display_name || user.user_id;
-          });
-
           const rosterToUserMap: Record<number, string> = {};
           rosters.forEach(roster => {
-            rosterToUserMap[roster.roster_id] = userMap[roster.owner_id] || `Unknown (Roster ${roster.roster_id})`;
+            const user = users[roster.owner_id];
+            const managerName = user ? (user.display_name || user.username) : `Unknown (Roster ${roster.roster_id})`;
+            rosterToUserMap[roster.roster_id] = managerName;
+            allManagers.set(roster.roster_id, managerName);
           });
 
-          const mapDraftPick = (pick: {
-              season: string;
-              round: number;
-              roster_id: number;
-              owner_id: number;
-              previous_owner_id: number;
-            }) => {
-              const totalTeams = rosters.length;
-              const currentSeason = league.season;
-
-              if (pick.season > currentSeason) {
-                return `${pick.season} Round ${pick.round}`;
-              }
-
-              if (currentSeason === STARTUP_SEASON) {
-                const draftOrder = draft.draft_order || {};
-                const slotToRosterId = draft.slot_to_roster_id || {};
-                const draftSlot = Object.keys(slotToRosterId).find(slot => slotToRosterId[slot] === pick.roster_id);
-
-                if (draftSlot) {
-                  let pickInRound = parseInt(draftSlot);
-                  if (pick.round % 2 === 0) {
-                    pickInRound = totalTeams - pickInRound + 1;
-                  }
-                  const pickNumber = (pick.round - 1) * totalTeams + pickInRound;
-                  const playerName = pickToPlayerMap.get(pickNumber) || "Undrafted";
-                  return `${pick.round}.${pickInRound} (Overall ${pickNumber} - ${playerName})`;
-                } else {
-                  return `${pick.season} Round ${pick.round}`;
-                }
-              }
-
-              if (currentSeason === ROOKIE_SEASON) {
-                const slotToRosterId = draft.slot_to_roster_id || {};
-                const draftSlot = Object.keys(slotToRosterId).find(slot => slotToRosterId[slot] === pick.roster_id);
-
-                if (draftSlot) {
-                  const pickNumber = (pick.round - 1) * totalTeams + parseInt(draftSlot);
-                  const playerName = pickToPlayerMap.get(pickNumber) || "Undrafted";
-                  return `${pick.round}.${draftSlot} (Overall ${pickNumber} - ${playerName})`;
-                } else {
-                  return `${pick.season} Round ${pick.round}`;
-                }
-              }
-
-              return `${pick.season} Round ${pick.round}`;
-            };
-
-            // Make sure to fetch and log the draft order when fetching draft data
-            console.log('Draft order:', draft.draft_order);
-            console.log('Slot to roster ID mapping:', draft.slot_to_roster_id);
           const processTradeData = (trade: Transaction): SimplifiedTrade => {
             const tradeDate = new Date(trade.created);
             const [team1Id, team2Id] = trade.roster_ids;
@@ -173,15 +167,15 @@ const ConsolidatedLeagueTracker: React.FC = () => {
               transactionId: trade.transaction_id,
               date: tradeDate,
               season: league.season,
-              team1: rosterToUserMap[team1Id],
-              team2: rosterToUserMap[team2Id],
+              team1: { name: rosterToUserMap[team1Id], rosterId: team1Id },
+              team2: { name: rosterToUserMap[team2Id], rosterId: team2Id },
               team1Receives: [
                 ...Object.keys(trade.adds || {})
                   .filter(playerId => trade.adds && trade.adds[playerId] === team1Id)
                   .map(playerId => players[playerId]?.full_name || `Unknown Player (${playerId})`),
                 ...(trade.draft_picks || [])
                   .filter(pick => pick.owner_id === team1Id)
-                  .map(mapDraftPick)
+                  .map(pick => mapDraftPick(pick, league.season, draft, rosters, pickToPlayerMap))
               ],
               team2Receives: [
                 ...Object.keys(trade.adds || {})
@@ -189,7 +183,7 @@ const ConsolidatedLeagueTracker: React.FC = () => {
                   .map(playerId => players[playerId]?.full_name || `Unknown Player (${playerId})`),
                 ...(trade.draft_picks || [])
                   .filter(pick => pick.owner_id === team2Id)
-                  .map(mapDraftPick)
+                  .map(pick => mapDraftPick(pick, league.season, draft, rosters, pickToPlayerMap))
               ],
               isDraftTrade: false,
               source: `League Transactions (${league.season})`
@@ -203,8 +197,9 @@ const ConsolidatedLeagueTracker: React.FC = () => {
           allTrades = [...allTrades, ...leagueTrades];
         }
 
-        allTrades.sort((a, b) => a.date.getTime() - b.date.getTime());
-        console.log('Total trades:', allTrades.length);
+        setManagers([{ name: 'All', rosterId: -1 }, ...Array.from(allManagers, ([rosterId, name]) => ({ name, rosterId }))]);
+        setSeasons(['All', ...Array.from(allSeasons)]);
+        allTrades.sort((a, b) => b.date.getTime() - a.date.getTime());
         setTrades(allTrades);
         setLoading(false);
       } catch (err) {
@@ -215,7 +210,12 @@ const ConsolidatedLeagueTracker: React.FC = () => {
     };
 
     fetchAllData();
-  }, []);
+  }, [initialLeagueId]);
+
+  const filteredTrades = trades.filter(trade =>
+    (selectedManager === 'All' || trade.team1.rosterId === selectedManager || trade.team2.rosterId === selectedManager) &&
+    (selectedSeason === 'All' || trade.season === selectedSeason)
+  );
 
   if (loading) return <div>Loading league data...</div>;
   if (error) return <div>Error: {error}</div>;
@@ -223,7 +223,35 @@ const ConsolidatedLeagueTracker: React.FC = () => {
   return (
     <div className="p-4">
       <h1 className="text-3xl font-bold mb-6">Trade Tracker</h1>
-      {trades.length === 0 ? (
+      <div className="mb-4 flex space-x-4">
+        <div>
+          <label htmlFor="managerFilter" className="mr-2">Filter by Manager:</label>
+          <select
+            id="managerFilter"
+            value={selectedManager}
+            onChange={(e) => setSelectedManager(e.target.value === 'All' ? 'All' : Number(e.target.value))}
+            className="border rounded p-2"
+          >
+            {managers.map(manager => (
+              <option key={manager.rosterId} value={manager.rosterId}>{manager.name}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="seasonFilter" className="mr-2">Filter by Season:</label>
+          <select
+            id="seasonFilter"
+            value={selectedSeason}
+            onChange={(e) => setSelectedSeason(e.target.value)}
+            className="border rounded p-2"
+          >
+            {seasons.map(season => (
+              <option key={season} value={season}>{season}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      {filteredTrades.length === 0 ? (
         <div>No trades found. Please check the console for more information.</div>
       ) : (
         <table className="min-w-full bg-white">
@@ -238,13 +266,13 @@ const ConsolidatedLeagueTracker: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {trades.map((trade) => (
+            {filteredTrades.map((trade) => (
               <tr key={trade.transactionId} className="hover:bg-gray-50">
                 <td className="border px-4 py-2">{trade.date.toLocaleString()}</td>
                 <td className="border px-4 py-2">{trade.season}</td>
-                <td className="border px-4 py-2">{trade.team1}</td>
+                <td className="border px-4 py-2">{trade.team1.name}</td>
                 <td className="border px-4 py-2">{trade.team1Receives.join(', ') || 'None'}</td>
-                <td className="border px-4 py-2">{trade.team2}</td>
+                <td className="border px-4 py-2">{trade.team2.name}</td>
                 <td className="border px-4 py-2">{trade.team2Receives.join(', ') || 'None'}</td>
               </tr>
             ))}
