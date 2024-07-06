@@ -189,18 +189,38 @@ const ConsolidatedLeagueTracker: React.FC<ConsolidatedLeagueTrackerProps> = ({ i
         traded.forEach(asset => assets.set(asset, (assets.get(asset) || 0) - 1));
       });
 
-      const acquired: string[] = [];
-      const tradedAway: string[] = [];
+      let acquired: string[] = [];
+      let tradedAway: string[] = [];
 
       assets.forEach((count, asset) => {
         if (count > 0) acquired.push(asset);
         else if (count < 0) tradedAway.push(asset);
       });
 
-      return {
-        acquired: acquired.sort((a, b) => a.localeCompare(b)),
-        traded: tradedAway.sort((a, b) => a.localeCompare(b))
-      };
+      acquired.sort((a, b) => a.localeCompare(b));
+      tradedAway.sort((a, b) => a.localeCompare(b));
+
+      // Remove players that appear in both lists
+      const removeCommonPlayers = (list1: string[], list2: string[]): [string[], string[]] => {
+          const toRemove = new Set<string>();
+
+          list1.forEach(item1 => {
+            const playerName = item1.split(' ').slice(0, 2).join(' ');
+            if (list2.some(item2 => item2.includes(playerName))) {
+              toRemove.add(playerName);
+            }
+          });
+
+          const removeArray = Array.from(toRemove);
+          return [
+            list1.filter(item => !removeArray.some(name => item.includes(name))),
+            list2.filter(item => !removeArray.some(name => item.includes(name)))
+          ];
+        };
+
+      [acquired, tradedAway] = removeCommonPlayers(acquired, tradedAway);
+
+      return { acquired, traded: tradedAway };
     };
 
   if (loading) return <div>Loading league data...</div>;
