@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { fetchAllTransactions, fetchUsers, fetchLeague, fetchRosters, fetchDraft, fetchPlayers } from '../services/api';
-import { Transaction, Roster, League, Player } from '../types/types';
+import { Transaction, Roster, League, Player, DraftPick } from '../types/types';
 
 interface User {
   user_id: string;
   display_name: string;
-  metadata: {
-    team_name?: string;
-  };
+  metadata: { team_name?: string; };
   avatar?: string;
   username: string;
 }
@@ -24,32 +22,15 @@ interface SimplifiedTrade {
   source: string;
 }
 
-interface DraftPick {
-  player_id: string;
-  picked_by: string;
-  roster_id: string;
-  round: number;
-  draft_slot: number;
-  pick_no: number;
-  metadata: {
-    team: string;
-    status: string;
-    sport: string;
-    position: string;
-    player_id: string;
-    number: string;
-    news_updated: string;
-    last_name: string;
-    injury_status: string;
-    first_name: string;
-  };
-  is_keeper: null | boolean;
-  draft_id: string;
-}
-
 interface ManagerOption {
   name: string;
   rosterId: number;
+}
+
+interface CondensedTrade {
+  manager: string;
+  received: string[];
+  traded: string[];
 }
 
 const STARTUP_SEASON = '2023';
@@ -63,31 +44,19 @@ const ConsolidatedLeagueTracker: React.FC<{ initialLeagueId: string }> = ({ init
   const [selectedManager, setSelectedManager] = useState<number | 'All'>('All');
   const [seasons, setSeasons] = useState<string[]>([]);
   const [selectedSeason, setSelectedSeason] = useState<string>('All');
+  const [isCondensed, setIsCondensed] = useState(false);
 
   const fetchDraftPicks = async (draftId: string): Promise<DraftPick[]> => {
     const response = await fetch(`https://api.sleeper.app/v1/draft/${draftId}/picks`);
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     return await response.json();
   };
 
-  const mapDraftPick = (pick: {
-    season: string;
-    round: number;
-    roster_id: number;
-    owner_id: number;
-    previous_owner_id: number;
-  }, currentSeason: string, draft: any, rosters: Roster[], pickToPlayerMap: Map<number, string>): string => {
+  const mapDraftPick = (pick: DraftPick, currentSeason: string, draft: any, rosters: Roster[], pickToPlayerMap: Map<number, string>): string => {
     const totalTeams = rosters.length;
-
-    if (pick.season > currentSeason) {
-      return `${pick.season} Round ${pick.round}`;
-    }
-
+    if (pick.season > currentSeason) return `${pick.season} Round ${pick.round}`;
     const slotToRosterId = draft.slot_to_roster_id || {};
     const draftSlot = Object.keys(slotToRosterId).find(slot => slotToRosterId[slot] === pick.roster_id);
-
     if (draftSlot) {
       let pickInRound = parseInt(draftSlot);
       if (currentSeason === STARTUP_SEASON && pick.round % 2 === 0) {
@@ -95,10 +64,9 @@ const ConsolidatedLeagueTracker: React.FC<{ initialLeagueId: string }> = ({ init
       }
       const pickNumber = (pick.round - 1) * totalTeams + pickInRound;
       const playerName = pickToPlayerMap.get(pickNumber) || "Undrafted";
-      return `${pick.round}.${pickInRound} (Overall ${pickNumber} - ${playerName})`;
-    } else {
-      return `${pick.season} Round ${pick.round}`;
+      return `${pick.season} Round ${pick.round}.${pickInRound} (Overall ${pickNumber} - ${playerName})`;
     }
+    return `${pick.season} Round ${pick.round}`;
   };
 
   useEffect(() => {
@@ -106,40 +74,15 @@ const ConsolidatedLeagueTracker: React.FC<{ initialLeagueId: string }> = ({ init
       try {
         setLoading(true);
         setError(null);
-
         const players: Record<string, Player> = await fetchPlayers();
-        console.log(`Fetched ${Object.keys(players).length} players`);
-
         let allTrades: SimplifiedTrade[] = [];
         let allManagers = new Map<number, string>();
         let allSeasons = new Set<string>();
-
-        const fetchLeagueHistory = async (leagueId: string): Promise<string[]> => {
-          const leagueIds = [leagueId];
-          let currentLeagueId = leagueId;
-
-          while (true) {
-            const currentLeague: League = await fetchLeague(currentLeagueId);
-            if (currentLeague.previous_league_id) {
-              leagueIds.unshift(currentLeague.previous_league_id);
-              currentLeagueId = currentLeague.previous_league_id;
-            } else {
-              break;
-            }
-          }
-
-          return leagueIds;
-        };
-
         const leagueIds = await fetchLeagueHistory(initialLeagueId);
-        console.log('League history:', leagueIds);
 
         for (const leagueId of leagueIds) {
           const league: League = await fetchLeague(leagueId);
-          console.log('League data:', league);
-
           allSeasons.add(league.season);
-
           const users: Record<string, User> = await fetchUsers(leagueId);
           const rosters: Roster[] = await fetchRosters(leagueId);
           const transactions: Transaction[] = await fetchAllTransactions(leagueId);
@@ -148,7 +91,7 @@ const ConsolidatedLeagueTracker: React.FC<{ initialLeagueId: string }> = ({ init
 
           const pickToPlayerMap = new Map(draftPicks.map(pick => [
             pick.pick_no,
-            `${pick.metadata.first_name} ${pick.metadata.last_name}`
+            players[pick.player_id]?.full_name || "Unknown Player"
           ]));
 
           const rosterToUserMap: Record<number, string> = {};
@@ -162,7 +105,6 @@ const ConsolidatedLeagueTracker: React.FC<{ initialLeagueId: string }> = ({ init
           const processTradeData = (trade: Transaction): SimplifiedTrade => {
             const tradeDate = new Date(trade.created);
             const [team1Id, team2Id] = trade.roster_ids;
-
             return {
               transactionId: trade.transaction_id,
               date: tradeDate,
@@ -212,24 +154,77 @@ const ConsolidatedLeagueTracker: React.FC<{ initialLeagueId: string }> = ({ init
     fetchAllData();
   }, [initialLeagueId]);
 
-  const filteredTrades = trades
-      .filter(trade =>
-        (selectedManager === 'All' || trade.team1.rosterId === selectedManager || trade.team2.rosterId === selectedManager) &&
-        (selectedSeason === 'All' || trade.season === selectedSeason)
-      )
-      .map(trade => {
-        if (selectedManager !== 'All' && trade.team2.rosterId === selectedManager) {
-          // Swap team1 and team2 if the selected manager is team2
-          return {
-            ...trade,
-            team1: trade.team2,
-            team2: trade.team1,
-            team1Receives: trade.team2Receives,
-            team2Receives: trade.team1Receives
-          };
+  const fetchLeagueHistory = async (leagueId: string): Promise<string[]> => {
+    const leagueIds = [leagueId];
+    let currentLeagueId = leagueId;
+    while (true) {
+      const currentLeague: League = await fetchLeague(currentLeagueId);
+      if (currentLeague.previous_league_id) {
+        leagueIds.unshift(currentLeague.previous_league_id);
+        currentLeagueId = currentLeague.previous_league_id;
+      } else {
+        break;
+      }
+    }
+    return leagueIds;
+  };
+
+  const getCondensedTrades = (trades: SimplifiedTrade[]): CondensedTrade[] => {
+    const managerAssets: Record<number, { received: Set<string>; traded: Set<string> }> = {};
+
+    trades.forEach(trade => {
+      if (!managerAssets[trade.team1.rosterId]) {
+        managerAssets[trade.team1.rosterId] = { received: new Set(), traded: new Set() };
+      }
+      if (!managerAssets[trade.team2.rosterId]) {
+        managerAssets[trade.team2.rosterId] = { received: new Set(), traded: new Set() };
+      }
+
+      trade.team1Receives.forEach(asset => {
+        if (managerAssets[trade.team1.rosterId].traded.has(asset)) {
+          managerAssets[trade.team1.rosterId].traded.delete(asset);
+        } else {
+          managerAssets[trade.team1.rosterId].received.add(asset);
         }
-        return trade;
+        managerAssets[trade.team2.rosterId].traded.add(asset);
       });
+
+      trade.team2Receives.forEach(asset => {
+        if (managerAssets[trade.team2.rosterId].traded.has(asset)) {
+          managerAssets[trade.team2.rosterId].traded.delete(asset);
+        } else {
+          managerAssets[trade.team2.rosterId].received.add(asset);
+        }
+        managerAssets[trade.team1.rosterId].traded.add(asset);
+      });
+    });
+
+    return Object.entries(managerAssets).map(([rosterId, assets]) => ({
+      manager: managers.find(m => m.rosterId === parseInt(rosterId))?.name || 'Unknown',
+      received: Array.from(assets.received),
+      traded: Array.from(assets.traded)
+    }));
+  };
+
+  const filteredTrades = trades
+    .filter(trade =>
+      (selectedManager === 'All' || trade.team1.rosterId === selectedManager || trade.team2.rosterId === selectedManager) &&
+      (selectedSeason === 'All' || trade.season === selectedSeason)
+    )
+    .map(trade => {
+      if (selectedManager !== 'All' && trade.team2.rosterId === selectedManager) {
+        return {
+          ...trade,
+          team1: trade.team2,
+          team2: trade.team1,
+          team1Receives: trade.team2Receives,
+          team2Receives: trade.team1Receives
+        };
+      }
+      return trade;
+    });
+
+  const condensedTrades = getCondensedTrades(filteredTrades);
 
   if (loading) return <div>Loading league data...</div>;
   if (error) return <div>Error: {error}</div>;
@@ -240,17 +235,17 @@ const ConsolidatedLeagueTracker: React.FC<{ initialLeagueId: string }> = ({ init
       <div className="mb-4 flex space-x-4">
         <div>
           <label htmlFor="managerFilter" className="mr-2">Filter by Manager:</label>
-            <select
-              id="managerFilter"
-              value={selectedManager}
-              onChange={(e) => setSelectedManager(e.target.value === 'All' ? 'All' : Number(e.target.value))}
-              className="border rounded p-2"
-            >
-              <option value="All">All Managers</option>
-              {managers.filter(manager => manager.rosterId !== -1).map(manager => (
-                <option key={manager.rosterId} value={manager.rosterId}>{manager.name}</option>
-              ))}
-            </select>
+          <select
+            id="managerFilter"
+            value={selectedManager}
+            onChange={(e) => setSelectedManager(e.target.value === 'All' ? 'All' : Number(e.target.value))}
+            className="border rounded p-2"
+          >
+            <option value="All">All Managers</option>
+            {managers.filter(manager => manager.rosterId !== -1).map(manager => (
+              <option key={manager.rosterId} value={manager.rosterId}>{manager.name}</option>
+            ))}
+          </select>
         </div>
         <div>
           <label htmlFor="seasonFilter" className="mr-2">Filter by Season:</label>
@@ -265,9 +260,45 @@ const ConsolidatedLeagueTracker: React.FC<{ initialLeagueId: string }> = ({ init
             ))}
           </select>
         </div>
+        <div>
+          <label htmlFor="condensedView" className="mr-2">
+            <input
+              type="checkbox"
+              id="condensedView"
+              checked={isCondensed}
+              onChange={(e) => setIsCondensed(e.target.checked)}
+              className="mr-1"
+            />
+            Condensed View
+          </label>
+        </div>
       </div>
       {filteredTrades.length === 0 ? (
         <div>No trades found. Please check the console for more information.</div>
+      ) : isCondensed ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {condensedTrades.map((trade, index) => (
+            <div key={index} className="border p-4 rounded shadow">
+              <h2 className="text-xl font-bold mb-2">{trade.manager}</h2>
+              <div className="mb-2">
+                <h3 className="font-semibold text-green-600">Received:</h3>
+                <ul className="list-disc pl-5">
+                  {trade.received.map((asset, i) => (
+                    <li key={i}>{asset}</li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <h3 className="font-semibold text-red-600">Traded:</h3>
+                <ul className="list-disc pl-5">
+                  {trade.traded.map((asset, i) => (
+                    <li key={i}>{asset}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          ))}
+        </div>
       ) : (
         <table className="min-w-full bg-white">
           <thead className="bg-gray-200">
@@ -286,16 +317,28 @@ const ConsolidatedLeagueTracker: React.FC<{ initialLeagueId: string }> = ({ init
                 <td className="border px-4 py-2">{trade.date.toLocaleString()}</td>
                 <td className="border px-4 py-2">{trade.season}</td>
                 <td className="border px-4 py-2">{trade.team1.name}</td>
-                <td className="border px-4 py-2">{trade.team1Receives.join(', ') || 'None'}</td>
+                <td className="border px-4 py-2">
+                  <ul className="list-disc pl-5">
+                    {trade.team1Receives.map((asset, index) => (
+                      <li key={index}>{asset}</li>
+                    ))}
+                  </ul>
+                </td>
                 <td className="border px-4 py-2">{trade.team2.name}</td>
-                <td className="border px-4 py-2">{trade.team2Receives.join(', ') || 'None'}</td>
+                <td className="border px-4 py-2">
+                  <ul className="list-disc pl-5">
+                    {trade.team2Receives.map((asset, index) => (
+                      <li key={index}>{asset}</li>
+                    ))}
+                  </ul>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
     </div>
-  );
-};
+    );
+  };
 
 export default ConsolidatedLeagueTracker;

@@ -37,6 +37,7 @@ export interface DraftPick {
   season: string;
   round: number;
   roster_id: number;
+  player_id: string;
   owner_id: number;
   previous_owner_id: number;
 }
@@ -64,7 +65,7 @@ export interface DraftPick {
   roster_id: number;
   owner_id: number;
   previous_owner_id: number;
-  pick: number; // This is likely the property name for the pick number
+  pick_no: number; // This is likely the property name for the pick number
 }
 
 export const BASE_URL = 'https://api.sleeper.app/v1';
