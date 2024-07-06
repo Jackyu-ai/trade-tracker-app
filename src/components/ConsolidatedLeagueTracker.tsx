@@ -211,6 +211,13 @@ const ConsolidatedLeagueTracker: React.FC<ConsolidatedLeagueTrackerProps> = ({ i
             }
           });
 
+          list2.forEach(item2 => {
+            const playerName = item2.split(' ').slice(0, 2).join(' ');
+            if (list1.some(item1 => item1.includes(playerName))) {
+              toRemove.add(playerName);
+            }
+          });
+
           const removeArray = Array.from(toRemove);
           return [
             list1.filter(item => !removeArray.some(name => item.includes(name))),
