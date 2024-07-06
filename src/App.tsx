@@ -4,6 +4,7 @@ import ConsolidatedLeagueTracker from './components/ConsolidatedLeagueTracker';
 const App: React.FC = () => {
   const [leagueId, setLeagueId] = useState<string>('');
   const [submittedLeagueId, setSubmittedLeagueId] = useState<string | null>(null);
+  const [is3rdRoundReversal, setIs3rdRoundReversal] = useState(false);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -30,8 +31,20 @@ const App: React.FC = () => {
             </button>
           </div>
         </form>
+        <div className="mb-4">
+          <input
+            type="checkbox"
+            id="3rdRoundReversal"
+            checked={is3rdRoundReversal}
+            onChange={(e) => setIs3rdRoundReversal(e.target.checked)}
+          />
+          <label htmlFor="3rdRoundReversal" className="ml-2">3rd Round Reversal</label>
+        </div>
         {submittedLeagueId ? (
-          <ConsolidatedLeagueTracker initialLeagueId={submittedLeagueId} />
+          <ConsolidatedLeagueTracker
+            initialLeagueId={submittedLeagueId}
+            is3rdRoundReversal={is3rdRoundReversal}
+          />
         ) : (
           <p>Please enter a league ID to view trade data.</p>
         )}

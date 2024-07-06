@@ -33,8 +33,13 @@ interface CondensedTrade {
   traded: string[];
 }
 
+interface ConsolidatedLeagueTrackerProps {
+  initialLeagueId: string;
+  is3rdRoundReversal: boolean;
+}
 
-const ConsolidatedLeagueTracker: React.FC<{ initialLeagueId: string }> = ({ initialLeagueId }) => {
+
+const ConsolidatedLeagueTracker: React.FC<ConsolidatedLeagueTrackerProps> = ({ initialLeagueId, is3rdRoundReversal }) => {
   const [trades, setTrades] = useState<SimplifiedTrade[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -64,8 +69,11 @@ const ConsolidatedLeagueTracker: React.FC<{ initialLeagueId: string }> = ({ init
       const draftSlot = Object.keys(slotToRosterId).find(slot => slotToRosterId[slot] === pick.roster_id);
       if (draftSlot) {
         let pickInRound = parseInt(draftSlot);
-        if (isStartupDraft && pick.round % 2 === 0) {
-          pickInRound = totalTeams - pickInRound + 1;
+        if (isStartupDraft) {
+          if ((is3rdRoundReversal && pick.round >= 3 && pick.round % 2 !== 0) ||
+              (!is3rdRoundReversal && pick.round % 2 === 0)) {
+            pickInRound = totalTeams - pickInRound + 1;
+          }
         }
         const pickNumber = (pick.round - 1) * totalTeams + pickInRound;
         const playerName = pickToPlayerMap.get(pickNumber) || "Undrafted";
