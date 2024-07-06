@@ -33,8 +33,6 @@ interface CondensedTrade {
   traded: string[];
 }
 
-const STARTUP_SEASON = '2023';
-const ROOKIE_SEASON = '2024';
 
 const ConsolidatedLeagueTracker: React.FC<{ initialLeagueId: string }> = ({ initialLeagueId }) => {
   const [trades, setTrades] = useState<SimplifiedTrade[]>([]);
@@ -52,122 +50,134 @@ const ConsolidatedLeagueTracker: React.FC<{ initialLeagueId: string }> = ({ init
     return await response.json();
   };
 
-  const mapDraftPick = (pick: DraftPick, currentSeason: string, draft: any, rosters: Roster[], pickToPlayerMap: Map<number, string>): string => {
-    const totalTeams = rosters.length;
-    if (pick.season > currentSeason) return `${pick.season} Round ${pick.round}`;
-    const slotToRosterId = draft.slot_to_roster_id || {};
-    const draftSlot = Object.keys(slotToRosterId).find(slot => slotToRosterId[slot] === pick.roster_id);
-    if (draftSlot) {
-      let pickInRound = parseInt(draftSlot);
-      if (currentSeason === STARTUP_SEASON && pick.round % 2 === 0) {
-        pickInRound = totalTeams - pickInRound + 1;
-      }
-      const pickNumber = (pick.round - 1) * totalTeams + pickInRound;
-      const playerName = pickToPlayerMap.get(pickNumber) || "Undrafted";
-      return `${pick.season} Round ${pick.round}.${pickInRound} (Overall ${pickNumber} - ${playerName})`;
-    }
-    return `${pick.season} Round ${pick.round}`;
-  };
-
-  useEffect(() => {
-    const fetchAllData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const players: Record<string, Player> = await fetchPlayers();
-        let allTrades: SimplifiedTrade[] = [];
-        let allManagers = new Map<number, string>();
-        let allSeasons = new Set<string>();
-        const leagueIds = await fetchLeagueHistory(initialLeagueId);
-
-        for (const leagueId of leagueIds) {
-          const league: League = await fetchLeague(leagueId);
-          allSeasons.add(league.season);
-          const users: Record<string, User> = await fetchUsers(leagueId);
-          const rosters: Roster[] = await fetchRosters(leagueId);
-          const transactions: Transaction[] = await fetchAllTransactions(leagueId);
-          const draft: any = await fetchDraft(league.draft_id);
-          const draftPicks: DraftPick[] = await fetchDraftPicks(draft.draft_id);
-
-          const pickToPlayerMap = new Map(draftPicks.map(pick => [
-            pick.pick_no,
-            players[pick.player_id]?.full_name || "Unknown Player"
-          ]));
-
-          const rosterToUserMap: Record<number, string> = {};
-          rosters.forEach(roster => {
-            const user = users[roster.owner_id];
-            const managerName = user ? (user.display_name || user.username) : `Unknown (Roster ${roster.roster_id})`;
-            rosterToUserMap[roster.roster_id] = managerName;
-            allManagers.set(roster.roster_id, managerName);
-          });
-
-          const processTradeData = (trade: Transaction): SimplifiedTrade => {
-            const tradeDate = new Date(trade.created);
-            const [team1Id, team2Id] = trade.roster_ids;
-            return {
-              transactionId: trade.transaction_id,
-              date: tradeDate,
-              season: league.season,
-              team1: { name: rosterToUserMap[team1Id], rosterId: team1Id },
-              team2: { name: rosterToUserMap[team2Id], rosterId: team2Id },
-              team1Receives: [
-                ...Object.keys(trade.adds || {})
-                  .filter(playerId => trade.adds && trade.adds[playerId] === team1Id)
-                  .map(playerId => players[playerId]?.full_name || `Unknown Player (${playerId})`),
-                ...(trade.draft_picks || [])
-                  .filter(pick => pick.owner_id === team1Id)
-                  .map(pick => mapDraftPick(pick, league.season, draft, rosters, pickToPlayerMap))
-              ],
-              team2Receives: [
-                ...Object.keys(trade.adds || {})
-                  .filter(playerId => trade.adds && trade.adds[playerId] === team2Id)
-                  .map(playerId => players[playerId]?.full_name || `Unknown Player (${playerId})`),
-                ...(trade.draft_picks || [])
-                  .filter(pick => pick.owner_id === team2Id)
-                  .map(pick => mapDraftPick(pick, league.season, draft, rosters, pickToPlayerMap))
-              ],
-              isDraftTrade: false,
-              source: `League Transactions (${league.season})`
-            };
-          };
-
-          const leagueTrades = transactions
-            .filter(transaction => transaction.type === 'trade')
-            .map(processTradeData);
-
-          allTrades = [...allTrades, ...leagueTrades];
+  const mapDraftPick = (
+      pick: DraftPick,
+      currentSeason: string,
+      draft: any,
+      rosters: Roster[],
+      pickToPlayerMap: Map<number, string>,
+      isStartupDraft: boolean
+    ): string => {
+      const totalTeams = rosters.length;
+      if (pick.season > currentSeason) return `${pick.season} ${isStartupDraft ? '' : 'Rookie '}Round ${pick.round}`;
+      const slotToRosterId = draft.slot_to_roster_id || {};
+      const draftSlot = Object.keys(slotToRosterId).find(slot => slotToRosterId[slot] === pick.roster_id);
+      if (draftSlot) {
+        let pickInRound = parseInt(draftSlot);
+        if (isStartupDraft && pick.round % 2 === 0) {
+          pickInRound = totalTeams - pickInRound + 1;
         }
-
-        setManagers([{ name: 'All', rosterId: -1 }, ...Array.from(allManagers, ([rosterId, name]) => ({ name, rosterId }))]);
-        setSeasons(['All', ...Array.from(allSeasons)]);
-        allTrades.sort((a, b) => b.date.getTime() - a.date.getTime());
-        setTrades(allTrades);
-        setLoading(false);
-      } catch (err) {
-        console.error('Error in fetchAllData:', err);
-        setError(`Failed to fetch data. Error: ${err instanceof Error ? err.message : String(err)}`);
-        setLoading(false);
+        const pickNumber = (pick.round - 1) * totalTeams + pickInRound;
+        const playerName = pickToPlayerMap.get(pickNumber) || "Undrafted";
+        const pickString = `${pick.season} ${isStartupDraft ? '' : 'Rookie '}${pick.round}.${pickInRound}`;
+        return `${pickString} (Overall ${pickNumber} - ${playerName})`;
       }
+      return `${pick.season} ${isStartupDraft ? '' : 'Rookie '}Round ${pick.round}`;
     };
 
-    fetchAllData();
-  }, [initialLeagueId]);
+  useEffect(() => {
+      const fetchAllData = async () => {
+        try {
+          setLoading(true);
+          setError(null);
+          const players: Record<string, Player> = await fetchPlayers();
+          let allTrades: SimplifiedTrade[] = [];
+          let allManagers = new Map<number, string>();
+          let allSeasons = new Set<string>();
+          const leagueIds = await fetchLeagueHistory(initialLeagueId);
+          const startupLeagueId = leagueIds[0];
+
+
+          for (let i = 0; i < leagueIds.length; i++) {
+            const leagueId = leagueIds[i];
+            const league: League = await fetchLeague(leagueId);
+            allSeasons.add(league.season);
+            const users: Record<string, User> = await fetchUsers(leagueId);
+            const rosters: Roster[] = await fetchRosters(leagueId);
+            const transactions: Transaction[] = await fetchAllTransactions(leagueId);
+            const draft: any = await fetchDraft(league.draft_id);
+            const draftPicks: DraftPick[] = await fetchDraftPicks(draft.draft_id);
+
+            const pickToPlayerMap = new Map(draftPicks.map(pick => [
+              pick.pick_no,
+              players[pick.player_id]?.full_name || "Unknown Player"
+            ]));
+
+            const rosterToUserMap: Record<number, string> = {};
+            rosters.forEach(roster => {
+              const user = users[roster.owner_id];
+              const managerName = user ? (user.display_name || user.username) : `Unknown (Roster ${roster.roster_id})`;
+              rosterToUserMap[roster.roster_id] = managerName;
+              allManagers.set(roster.roster_id, managerName);
+            });
+
+            const processTradeData = (trade: Transaction): SimplifiedTrade => {
+              const tradeDate = new Date(trade.created);
+              const [team1Id, team2Id] = trade.roster_ids;
+              const isStartupDraft = leagueId === startupLeagueId;
+              return {
+                transactionId: trade.transaction_id,
+                date: tradeDate,
+                season: league.season,
+                team1: { name: rosterToUserMap[team1Id], rosterId: team1Id },
+                team2: { name: rosterToUserMap[team2Id], rosterId: team2Id },
+                team1Receives: [
+                  ...Object.keys(trade.adds || {})
+                    .filter(playerId => trade.adds && trade.adds[playerId] === team1Id)
+                    .map(playerId => players[playerId]?.full_name || `Unknown Player (${playerId})`),
+                  ...(trade.draft_picks || [])
+                    .filter(pick => pick.owner_id === team1Id)
+                    .map(pick => mapDraftPick(pick, league.season, draft, rosters, pickToPlayerMap, isStartupDraft))
+                ],
+                team2Receives: [
+                  ...Object.keys(trade.adds || {})
+                    .filter(playerId => trade.adds && trade.adds[playerId] === team2Id)
+                    .map(playerId => players[playerId]?.full_name || `Unknown Player (${playerId})`),
+                  ...(trade.draft_picks || [])
+                    .filter(pick => pick.owner_id === team2Id)
+                    .map(pick => mapDraftPick(pick, league.season, draft, rosters, pickToPlayerMap, isStartupDraft))
+                ],
+                isDraftTrade: false,
+                source: `League Transactions (${league.season})`
+              };
+            };
+
+            const leagueTrades = transactions
+              .filter(transaction => transaction.type === 'trade')
+              .map(processTradeData);
+
+            allTrades = [...allTrades, ...leagueTrades];
+          }
+
+          setManagers([{ name: 'All', rosterId: -1 }, ...Array.from(allManagers, ([rosterId, name]) => ({ name, rosterId }))]);
+          setSeasons(['All', ...Array.from(allSeasons)]);
+          allTrades.sort((a, b) => b.date.getTime() - a.date.getTime());
+          setTrades(allTrades);
+          setLoading(false);
+        } catch (err) {
+          console.error('Error in fetchAllData:', err);
+          setError(`Failed to fetch data. Error: ${err instanceof Error ? err.message : String(err)}`);
+          setLoading(false);
+        }
+      };
+
+      fetchAllData();
+    }, [initialLeagueId]);
 
   const fetchLeagueHistory = async (leagueId: string): Promise<string[]> => {
-    const leagueIds = [leagueId];
-    let currentLeagueId = leagueId;
-    while (true) {
-      const currentLeague: League = await fetchLeague(currentLeagueId);
-      if (currentLeague.previous_league_id) {
-        leagueIds.unshift(currentLeague.previous_league_id);
-        currentLeagueId = currentLeague.previous_league_id;
-      } else {
-        break;
+      const leagueIds = [leagueId];
+      let currentLeagueId = leagueId;
+      while (true) {
+        const currentLeague: League = await fetchLeague(currentLeagueId);
+        if (currentLeague.previous_league_id) {
+          leagueIds.unshift(currentLeague.previous_league_id);
+          currentLeagueId = currentLeague.previous_league_id;
+        } else {
+          break;
+        }
       }
-    }
-    return leagueIds;
-  };
+      return leagueIds;
+    };
 
   const getCondensedTrades = (trades: SimplifiedTrade[]): CondensedTrade[] => {
     const managerAssets: Record<number, { received: Set<string>; traded: Set<string> }> = {};
